@@ -44,15 +44,18 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         if (ui.isDomainWhitelisted(domain)) {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
             scannedCount++;
+            scanningCount--;
             ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
             return AuditResult.auditResult(new ArrayList<>());
         }
 
         // 检查响应是否可能包含HTML
         String contentType = baseRequestResponse.response().statedMimeType().toString();
-        if (!contentType.contains("html") && !contentType.contains("text") && !contentType.isEmpty()) {
+        api.logging().logToOutput("Content-Type: " + contentType);
+        if (!contentType.toLowerCase().contains("html") && !contentType.toLowerCase().contains("text") && !contentType.isEmpty()) {
             api.logging().logToOutput("Skipping non-text response: " + contentType);
             scannedCount++;
+            scanningCount--;
             ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
             return AuditResult.auditResult(new ArrayList<>());
         }
@@ -60,6 +63,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         // 查找所有<a>标签
         String responseBody = baseRequestResponse.response().bodyToString();
         api.logging().logToOutput("Response length: " + responseBody.length());
+        api.logging().logToOutput("Response snippet: " + (responseBody.length() > 100 ? responseBody.substring(0, 100) : responseBody));
         Matcher matcher = linkPattern.matcher(responseBody);
         boolean hasVulnerability = false;
         String payload1 = "";
@@ -70,17 +74,18 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         while (matcher.find()) {
             String link = matcher.group();
             api.logging().logToOutput("Found <a> tag: " + link);
-            if (link.contains("target=\"blank\"") || link.contains("target='_blank'")) {
-                if (!link.contains("rel=\"noopener\"") && !link.contains("rel=\"noreferrer\"")) {
-                    hasVulnerability = true;
-                    payload1 = link;
-                    payload2 = "无 rel=\"noopener\"";
-                    payload3 = "无 rel=\"noreferrer\"";
-                    api.logging().logToOutput("Vulnerability found: " + payload1);
-                    break;
-                } else {
-                    api.logging().logToOutput("Safe link with rel attributes: " + link);
-                }
+            boolean hasTargetBlank = link.contains("target=\"blank\"") || link.contains("target='_blank'") || link.contains("target=\"_blank\"");
+            boolean hasRelProtection = link.contains("rel=\"noopener\"") || link.contains("rel=\"noreferrer\"");
+            api.logging().logToOutput("Target check: hasTargetBlank=" + hasTargetBlank + ", hasRelProtection=" + hasRelProtection);
+            if (hasTargetBlank && !hasRelProtection) {
+                hasVulnerability = true;
+                payload1 = link;
+                payload2 = "无 rel=\"noopener\"";
+                payload3 = "无 rel=\"noreferrer\"";
+                api.logging().logToOutput("Vulnerability found: " + payload1);
+                break;
+            } else if (hasTargetBlank) {
+                api.logging().logToOutput("Safe link with rel attributes: " + link);
             }
         }
 
@@ -106,6 +111,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
 
         // 更新UI
         scannedCount++;
+        scanningCount--;
         ui.addLogEntry(url, "Reverse Tabnabbing", result, baseRequestResponse);
         ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
         api.logging().logToOutput("Scan completed for URL: " + url + ", Issues: " + issues.size());

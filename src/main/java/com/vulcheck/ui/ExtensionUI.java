@@ -172,9 +172,9 @@ public class ExtensionUI {
         SwingUtilities.invokeLater(() -> {
             for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                 if (statsTableModel.getValueAt(i, 1).equals(checkType)) {
-                    statsTableModel.setValueAt(scanningCount + " scanning, " + scannedCount + " scanned", i, 2);
+                    statsTableModel.setValueAt("0 scanning, " + scannedCount + " scanned", i, 2);
                     statsTableModel.setValueAt(String.valueOf(vulCount), i, 3);
-                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=" + scanningCount + " scanning, " + scannedCount + " scanned, VulResult=" + vulCount);
+                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=0 scanning, " + scannedCount + " scanned, VulResult=" + vulCount);
                     break;
                 }
             }
