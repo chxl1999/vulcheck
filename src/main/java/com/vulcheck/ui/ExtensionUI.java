@@ -20,27 +20,32 @@ import java.util.List;
 public class ExtensionUI {
     private final MontoyaApi api;
     private final DefaultTableModel logTableModel;
+    private final DefaultTableModel statsTableModel;
     private final List<HttpRequestResponse> requestResponses;
+    private final List<String> whitelistDomains;
 
     public ExtensionUI(MontoyaApi api) {
         this.api = api;
         this.logTableModel = new DefaultTableModel(new String[]{"URL", "Checktype", "Result"}, 0);
+        this.statsTableModel = new DefaultTableModel(new String[]{"Enable", "Checklist", "Status", "VulResult"}, 0);
         this.requestResponses = new ArrayList<>();
+        this.whitelistDomains = new ArrayList<>();
+        api.logging().logToOutput("ExtensionUI initialized");
     }
 
     public void initialize() {
         JTabbedPane extensionTabs = new JTabbedPane();
         extensionTabs.addTab("Statistics", constructStatisticsPanel());
         extensionTabs.addTab("Log", constructLogPanel());
+        extensionTabs.addTab("Settings", constructSettingsPanel());
         api.userInterface().registerSuiteTab("VulCheck", extensionTabs);
+        api.logging().logToOutput("VulCheck tabs registered: Statistics, Log, Settings");
     }
 
     private JPanel constructStatisticsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        String[] columns = {"Enable", "Checklist", "Status", "VulResult"};
-        DefaultTableModel model = new DefaultTableModel(columns, 0);
-        model.addRow(new Object[]{true, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0"});
-        JTable table = new JTable(model);
+        statsTableModel.addRow(new Object[]{true, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0"});
+        JTable table = new JTable(statsTableModel);
         table.setAutoCreateRowSorter(true);
         table.getColumnModel().getColumn(0).setCellRenderer(new CheckBoxRenderer());
         table.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(new JCheckBox()));
@@ -92,6 +97,7 @@ public class ExtensionUI {
             } else {
                 sorter.setRowFilter(RowFilter.regexFilter(keyword, columnIndex));
             }
+            api.logging().logToOutput("Applied filter: column=" + columnSelector.getSelectedItem() + ", keyword=" + keyword);
         });
 
         // 行选择监听器
@@ -105,6 +111,7 @@ public class ExtensionUI {
                         requestEditor.setRequest(requestResponse.request());
                         responseEditor.setResponse(requestResponse.response());
                         analysisArea.setText((String) logTableModel.getValueAt(modelRow, 2));
+                        api.logging().logToOutput("Selected log row: " + modelRow + ", URL: " + logTableModel.getValueAt(modelRow, 0));
                     }
                 }
             }
@@ -118,15 +125,69 @@ public class ExtensionUI {
         return panel;
     }
 
+    private JPanel constructSettingsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        DefaultListModel<String> whitelistModel = new DefaultListModel<>();
+        JList<String> whitelistList = new JList<>(whitelistModel);
+        JTextField domainField = new JTextField(20);
+        JButton addButton = new JButton("Add to Whitelist");
+
+        // Whitelist 面板
+        JPanel inputPanel = new JPanel();
+        inputPanel.add(new JLabel("Domain:"));
+        inputPanel.add(domainField);
+        inputPanel.add(addButton);
+        panel.add(inputPanel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(whitelistList), BorderLayout.CENTER);
+
+        // 添加域名到白名单
+        addButton.addActionListener(e -> {
+            String domain = domainField.getText().trim();
+            if (!domain.isEmpty() && !whitelistModel.contains(domain)) {
+                whitelistModel.addElement(domain);
+                whitelistDomains.add(domain);
+                api.logging().logToOutput("Added domain to whitelist: " + domain);
+                domainField.setText("");
+            } else if (domain.isEmpty()) {
+                api.logging().logToOutput("Failed to add domain: empty input");
+                JOptionPane.showMessageDialog(panel, "请输入有效的域名", "错误", JOptionPane.ERROR_MESSAGE);
+            } else {
+                api.logging().logToOutput("Failed to add domain: already in whitelist: " + domain);
+                JOptionPane.showMessageDialog(panel, "域名已存在于白名单", "错误", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        return panel;
+    }
+
     public void addLogEntry(String url, String checkType, String result, HttpRequestResponse requestResponse) {
         SwingUtilities.invokeLater(() -> {
             logTableModel.addRow(new Object[]{url, checkType, result});
             requestResponses.add(requestResponse);
+            api.logging().logToOutput("Added log entry: URL=" + url + ", Checktype=" + checkType + ", Result=" + result);
         });
     }
 
+    public void updateStatistics(String checkType, int scanningCount, int scannedCount, int vulCount) {
+        SwingUtilities.invokeLater(() -> {
+            for (int i = 0; i < statsTableModel.getRowCount(); i++) {
+                if (statsTableModel.getValueAt(i, 1).equals(checkType)) {
+                    statsTableModel.setValueAt(scanningCount + " scanning, " + scannedCount + " scanned", i, 2);
+                    statsTableModel.setValueAt(String.valueOf(vulCount), i, 3);
+                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=" + scanningCount + " scanning, " + scannedCount + " scanned, VulResult=" + vulCount);
+                    break;
+                }
+            }
+        });
+    }
+
+    public boolean isDomainWhitelisted(String domain) {
+        boolean isWhitelisted = whitelistDomains.contains(domain);
+        api.logging().logToOutput("Checking whitelist for domain: " + domain + ", Result: " + isWhitelisted);
+        return isWhitelisted;
+    }
+
     private void exportToXLSX(JTable table) {
-        // 创建文件选择器
         JFileChooser fileChooser = new JFileChooser();
         String defaultFileName = "VulCheck_" + new SimpleDateFormat("yyyyMMdd").format(new Date()) + ".xlsx";
         fileChooser.setSelectedFile(new File(defaultFileName));
@@ -142,9 +203,9 @@ public class ExtensionUI {
             }
         });
 
-        // 显示保存对话框
         int result = fileChooser.showSaveDialog(null);
         if (result != JFileChooser.APPROVE_OPTION) {
+            api.logging().logToOutput("Export cancelled by user");
             return;
         }
 
@@ -153,18 +214,14 @@ public class ExtensionUI {
             file = new File(file.getAbsolutePath() + ".xlsx");
         }
 
-        // 创建XLSX文件
         try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("VulCheck Log");
-
-            // 设置表头样式
             CellStyle headerStyle = workbook.createCellStyle();
             org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
             headerFont.setBold(true);
             headerStyle.setFont(headerFont);
             headerStyle.setAlignment(HorizontalAlignment.CENTER);
 
-            // 创建表头
             Row headerRow = sheet.createRow(0);
             String[] headers = {"URL", "Checktype", "Result"};
             for (int i = 0; i < headers.length; i++) {
@@ -173,7 +230,6 @@ public class ExtensionUI {
                 cell.setCellStyle(headerStyle);
             }
 
-            // 写入数据（考虑过滤后的显示顺序）
             for (int rowIndex = 0; rowIndex < table.getRowCount(); rowIndex++) {
                 Row row = sheet.createRow(rowIndex + 1);
                 int modelRow = table.convertRowIndexToModel(rowIndex);
@@ -183,17 +239,17 @@ public class ExtensionUI {
                 }
             }
 
-            // 自动调整列宽
             for (int i = 0; i < headers.length; i++) {
                 sheet.autoSizeColumn(i);
             }
 
-            // 保存文件
             try (FileOutputStream fileOut = new FileOutputStream(file)) {
                 workbook.write(fileOut);
+                api.logging().logToOutput("Export successful: " + file.getAbsolutePath());
                 JOptionPane.showMessageDialog(null, "导出成功: " + file.getAbsolutePath(), "导出", JOptionPane.INFORMATION_MESSAGE);
             }
         } catch (IOException e) {
+            api.logging().logToOutput("Export failed: " + e.getMessage());
             JOptionPane.showMessageDialog(null, "导出失败: " + e.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
         }
     }

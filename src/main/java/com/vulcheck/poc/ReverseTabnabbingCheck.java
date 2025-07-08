@@ -3,9 +3,8 @@ package com.vulcheck.poc;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.AuditResult;
-import burp.api.montoya.scanner.ScanCheck;
+import burp.api.montoya.scanner.scancheck.PassiveScanCheck;
 import burp.api.montoya.scanner.ConsolidationAction;
-import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
@@ -15,43 +14,72 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@SuppressWarnings("deprecation")
-public class ReverseTabnabbingCheck implements ScanCheck {
+public class ReverseTabnabbingCheck implements PassiveScanCheck {
     private final MontoyaApi api;
     private final ExtensionUI ui;
-    private final Pattern linkPattern = Pattern.compile("<a\\s+[^>]*href=\"[^\"]+\"[^>]*>", Pattern.CASE_INSENSITIVE);
+    private final Pattern linkPattern = Pattern.compile("<a\\s+[^>]*>", Pattern.CASE_INSENSITIVE);
+    private int scannedCount = 0;
+    private int scanningCount = 0;
 
     public ReverseTabnabbingCheck(MontoyaApi api, ExtensionUI ui) {
         this.api = api;
         this.ui = ui;
+        api.logging().logToOutput("ReverseTabnabbingCheck initialized");
     }
 
     @Override
-    public AuditResult passiveAudit(HttpRequestResponse baseRequestResponse) {
-        List<AuditIssue> issues = new ArrayList<>();
-        String responseBody = baseRequestResponse.response().bodyToString();
+    public String checkName() {
+        return "Reverse Tabnabbing Check";
+    }
 
-        // 检查是否在Target scope内
-        if (!api.scope().isInScope(baseRequestResponse.request().url())) {
+    @Override
+    public AuditResult doCheck(HttpRequestResponse baseRequestResponse) {
+        List<AuditIssue> issues = new ArrayList<>();
+        scanningCount++;
+        String url = baseRequestResponse.request().url();
+        api.logging().logToOutput("Processing URL: " + url);
+
+        // 检查是否在Whitelist中
+        String domain = extractDomain(url);
+        if (ui.isDomainWhitelisted(domain)) {
+            api.logging().logToOutput("Skipping whitelisted domain: " + domain);
+            scannedCount++;
+            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
+            return AuditResult.auditResult(new ArrayList<>());
+        }
+
+        // 检查响应是否可能包含HTML
+        String contentType = baseRequestResponse.response().statedMimeType().toString();
+        if (!contentType.contains("html") && !contentType.contains("text") && !contentType.isEmpty()) {
+            api.logging().logToOutput("Skipping non-text response: " + contentType);
+            scannedCount++;
+            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
             return AuditResult.auditResult(new ArrayList<>());
         }
 
         // 查找所有<a>标签
+        String responseBody = baseRequestResponse.response().bodyToString();
+        api.logging().logToOutput("Response length: " + responseBody.length());
         Matcher matcher = linkPattern.matcher(responseBody);
         boolean hasVulnerability = false;
         String payload1 = "";
         String payload2 = "";
         String payload3 = "";
 
+        api.logging().logToOutput("Scanning HTML for <a> tags...");
         while (matcher.find()) {
             String link = matcher.group();
+            api.logging().logToOutput("Found <a> tag: " + link);
             if (link.contains("target=\"blank\"") || link.contains("target='_blank'")) {
                 if (!link.contains("rel=\"noopener\"") && !link.contains("rel=\"noreferrer\"")) {
                     hasVulnerability = true;
                     payload1 = link;
                     payload2 = "无 rel=\"noopener\"";
                     payload3 = "无 rel=\"noreferrer\"";
+                    api.logging().logToOutput("Vulnerability found: " + payload1);
                     break;
+                } else {
+                    api.logging().logToOutput("Safe link with rel attributes: " + link);
                 }
             }
         }
@@ -64,7 +92,7 @@ public class ReverseTabnabbingCheck implements ScanCheck {
                 "Reverse Tabnabbing Vulnerability",
                 "Found link with target=\"_blank\" without rel=\"noopener\" or \"noreferrer\".",
                 "Add rel=\"noopener noreferrer\" to all target=\"_blank\" links.",
-                baseRequestResponse.request().url(),
+                url,
                 AuditIssueSeverity.LOW,
                 AuditIssueConfidence.CERTAIN,
                 null,
@@ -77,18 +105,26 @@ public class ReverseTabnabbingCheck implements ScanCheck {
         }
 
         // 更新UI
-        ui.addLogEntry(baseRequestResponse.request().url(), "Reverse Tabnabbing", result, baseRequestResponse);
+        scannedCount++;
+        ui.addLogEntry(url, "Reverse Tabnabbing", result, baseRequestResponse);
+        ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
+        api.logging().logToOutput("Scan completed for URL: " + url + ", Issues: " + issues.size());
 
         return AuditResult.auditResult(issues);
     }
 
     @Override
-    public AuditResult activeAudit(HttpRequestResponse baseRequestResponse, AuditInsertionPoint insertionPoint) {
-        return AuditResult.auditResult(new ArrayList<>());
+    public ConsolidationAction consolidateIssues(AuditIssue existingIssue, AuditIssue newIssue) {
+        return ConsolidationAction.KEEP_BOTH;
     }
 
-    @Override
-    public ConsolidationAction consolidateIssues(AuditIssue existingIssue, AuditIssue newIssue) {
-        return ConsolidationAction.KEEP_NEW;
+    private String extractDomain(String url) {
+        try {
+            String host = new java.net.URL(url).getHost();
+            return host.startsWith("www.") ? host.substring(4) : host;
+        } catch (Exception e) {
+            api.logging().logToOutput("Error extracting domain from URL: " + url);
+            return "";
+        }
     }
 }
