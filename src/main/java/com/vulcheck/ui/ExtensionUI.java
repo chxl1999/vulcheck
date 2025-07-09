@@ -121,6 +121,7 @@ public class ExtensionUI {
             for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                 statsTableModel.setValueAt(selected, i, 0);
             }
+            statsTableModel.fireTableDataChanged(); // 通知表格数据更新
             api.logging().logToOutput(selected ? "All checklists selected" : "All checklists unselected");
         });
 
@@ -177,7 +178,7 @@ public class ExtensionUI {
         JButton exportButton = new JButton("Export to XLSX");
         exportButton.addActionListener(e -> exportToXLSX(table));
 
-        // ScanDetail区域
+        // ScanDetail 区域
         JTabbedPane detailTabs = new JTabbedPane();
         var requestEditor = api.userInterface().createHttpRequestEditor();
         var responseEditor = api.userInterface().createHttpResponseEditor();
@@ -194,16 +195,17 @@ public class ExtensionUI {
         filterButton.addActionListener(e -> {
             String keyword = keywordField.getText().trim();
             int columnIndex = columnSelector.getSelectedIndex();
-            if (keyword.isEmpty()) {
-                sorter.setRowFilter(null);
-            } else {
-                try {
+            try {
+                if (keyword.isEmpty()) {
+                    sorter.setRowFilter(null);
+                    api.logging().logToOutput("Filter cleared");
+                } else {
                     sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(keyword), columnIndex));
                     api.logging().logToOutput("Applied filter: column=" + columnSelector.getSelectedItem() + ", keyword=" + keyword);
-                } catch (Exception ex) {
-                    api.logging().logToOutput("Filter error: " + ex.getMessage());
-                    JOptionPane.showMessageDialog(panel, "无效的过滤关键词: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
                 }
+            } catch (Exception ex) {
+                api.logging().logToOutput("Filter error: " + ex.getMessage());
+                JOptionPane.showMessageDialog(panel, "无效的过滤关键词: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
             }
         });
 
@@ -221,7 +223,7 @@ public class ExtensionUI {
                         if (!issues.isEmpty()) {
                             AuditIssue issue = issues.get(0);
                             String analysisText = String.format("Name: %s\nDetail: %s\nRemediation: %s",
-                                issue.name(), issue.detail(), issue.remediation());
+                                    issue.name(), issue.detail(), issue.remediation());
                             analysisArea.setText(analysisText);
                         } else {
                             analysisArea.setText("No issues found");
