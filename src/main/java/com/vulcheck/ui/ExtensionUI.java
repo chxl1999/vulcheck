@@ -3,21 +3,17 @@ package com.vulcheck.ui;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.apache.poi.ss.usermodel.Font;
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableRowSorter;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -34,6 +30,8 @@ public class ExtensionUI {
     private final List<HttpRequestResponse> requestResponses;
     private final List<List<AuditIssue>> requestResponsesIssues;
     private final List<DomainEntry> whitelistDomains;
+    private final Color selectedBackground = new Color(100, 50, 14);
+    private final Color selectedForeground = Color.WHITE;
 
     // 白名单域名对象
     private static class DomainEntry {
@@ -73,7 +71,10 @@ public class ExtensionUI {
     private JPanel constructStatisticsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
+        // 添加 Reverse Tabnabbing 和 XSSI 的行
         statsTableModel.addRow(new Object[]{false, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0", ""});
+        statsTableModel.addRow(new Object[]{false, "XSSI", "0 scanning, 0 scanned", "0", ""});
+
         JTable table = new JTable(statsTableModel) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -100,6 +101,7 @@ public class ExtensionUI {
                 return c;
             }
         };
+
         // 设置居中对齐
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
@@ -141,9 +143,6 @@ public class ExtensionUI {
 
         // 日志表格
         JTable table = new JTable(logTableModel) {
-            private Color selectedBackground = new Color(100, 50, 14);
-            private Color selectedForeground = Color.WHITE;
-
             @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component c = super.prepareRenderer(renderer, row, column);
@@ -163,6 +162,7 @@ public class ExtensionUI {
                 return c;
             }
         };
+
         // 设置居中对齐
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
@@ -384,7 +384,7 @@ public class ExtensionUI {
         try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("VulCheck Log");
             CellStyle headerStyle = workbook.createCellStyle();
-            Font headerFont = workbook.createFont();
+            org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
             headerFont.setBold(true);
             headerStyle.setFont(headerFont);
             headerStyle.setAlignment(HorizontalAlignment.CENTER);

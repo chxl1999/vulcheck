@@ -9,7 +9,7 @@ import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import com.vulcheck.ui.ExtensionUI;
-import java.net.URI;
+import com.vulcheck.utils.ScanUtils;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -54,7 +54,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         }
 
         // 检查是否在白名单中
-        String domain = extractDomain(url);
+        String domain = ScanUtils.extractDomain(url, api);
         if (ui.isDomainWhitelisted(domain)) {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
             scanningCount--;
@@ -113,7 +113,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
             result = "Issues";
             issues.add(AuditIssue.auditIssue(
                 "Reverse Tabnabbing Vulnerability",
-                String.format("%s, %s, %s, Reverse Tabnabbing允许新窗口通过window.opener控制原页面", 
+                String.format("%s, %s, %s, Reverse Tabnabbing允许新窗口通过window.opener控制原页面",
                     payload1, payload2, payload3),
                 "1. Add rel=\"noopener noreferrer\":\n" +
                 "Ensure all external links with target=\"_blank\" include rel=\"noopener noreferrer\" to prevent the new window from accessing window.opener.\n" +
@@ -147,15 +147,5 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
     @Override
     public ConsolidationAction consolidateIssues(AuditIssue existingIssue, AuditIssue newIssue) {
         return ConsolidationAction.KEEP_BOTH;
-    }
-
-    private String extractDomain(String url) {
-        try {
-            String host = URI.create(url).toURL().getHost();
-            return host.startsWith("www.") ? host.substring(4) : host;
-        } catch (Exception e) {
-            api.logging().logToOutput("Error extracting domain from URL: " + url);
-            return "";
-        }
     }
 }

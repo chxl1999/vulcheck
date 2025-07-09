@@ -4,6 +4,7 @@ import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import com.vulcheck.poc.ReverseTabnabbingCheck;
+import com.vulcheck.poc.XSSICheck;
 import com.vulcheck.ui.ExtensionUI;
 
 public class Extension implements BurpExtension {
@@ -12,15 +13,19 @@ public class Extension implements BurpExtension {
         montoyaApi.extension().setName("VulCheck");
         montoyaApi.logging().logToOutput("VulCheck plugin initializing...");
 
-        // 初始化UI
+        // Initialize UI
         ExtensionUI ui = new ExtensionUI(montoyaApi);
         ui.initialize();
         montoyaApi.logging().logToOutput("UI initialized successfully");
 
-        // 注册被动扫描检查
+        // Register passive scan checks
         ReverseTabnabbingCheck reverseTabnabbingCheck = new ReverseTabnabbingCheck(montoyaApi, ui);
         montoyaApi.scanner().registerPassiveScanCheck(reverseTabnabbingCheck, ScanCheckType.PER_REQUEST);
         montoyaApi.logging().logToOutput("Passive scan check registered for Reverse Tabnabbing");
+
+        XSSICheck xssiCheck = new XSSICheck(montoyaApi, ui);
+        montoyaApi.scanner().registerPassiveScanCheck(xssiCheck, ScanCheckType.PER_REQUEST);
+        montoyaApi.logging().logToOutput("Passive scan check registered for XSSI");
 
         montoyaApi.logging().logToOutput("VulCheck plugin loaded successfully");
     }
