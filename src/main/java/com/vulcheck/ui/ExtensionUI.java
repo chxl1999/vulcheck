@@ -12,7 +12,9 @@ import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.ss.usermodel.Font;
 import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableRowSorter;
 import java.awt.*;
@@ -23,6 +25,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class ExtensionUI {
     private final MontoyaApi api;
@@ -30,7 +33,23 @@ public class ExtensionUI {
     private final DefaultTableModel statsTableModel;
     private final List<HttpRequestResponse> requestResponses;
     private final List<List<AuditIssue>> requestResponsesIssues;
-    private final List<String> whitelistDomains;
+    private final List<DomainEntry> whitelistDomains;
+
+    // 白名单域名对象
+    private static class DomainEntry {
+        String domain;
+        boolean includeSubdomains;
+
+        DomainEntry(String domain, boolean includeSubdomains) {
+            this.domain = domain;
+            this.includeSubdomains = includeSubdomains;
+        }
+
+        @Override
+        public String toString() {
+            return domain + (includeSubdomains ? " (Include Subdomains)" : "");
+        }
+    }
 
     public ExtensionUI(MontoyaApi api) {
         this.api = api;
@@ -53,10 +72,6 @@ public class ExtensionUI {
 
     private JPanel constructStatisticsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        JPanel topPanel = new JPanel();
-        JButton selectAllButton = new JButton("Select All");
-        topPanel.add(selectAllButton);
-        panel.add(topPanel, BorderLayout.NORTH);
 
         statsTableModel.addRow(new Object[]{false, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0", ""});
         JTable table = new JTable(statsTableModel) {
@@ -64,19 +79,50 @@ public class ExtensionUI {
             public boolean isCellEditable(int row, int column) {
                 return column == 0; // 仅允许编辑 Enable 列
             }
-        };
-        table.setAutoCreateRowSorter(true);
-        table.getColumnModel().getColumn(0).setCellRenderer(new CheckBoxRenderer());
-        table.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(new JCheckBox()));
-        panel.add(new JScrollPane(table), BorderLayout.CENTER);
 
-        selectAllButton.addActionListener(e -> {
-            for (int i = 0; i < statsTableModel.getRowCount(); i++) {
-                statsTableModel.setValueAt(true, i, 0);
+            @Override
+            public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
+                Component c = super.prepareRenderer(renderer, row, column);
+                int modelRow = convertRowIndexToModel(row);
+                String vulResult = (String) getModel().getValueAt(modelRow, 3);
+                try {
+                    if (Integer.parseInt(vulResult) > 0) {
+                        c.setBackground(new Color(139, 69, 19));
+                        c.setForeground(Color.WHITE);
+                    } else {
+                        c.setBackground(Color.WHITE);
+                        c.setForeground(Color.BLACK);
+                    }
+                } catch (NumberFormatException e) {
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(Color.BLACK);
+                }
+                return c;
             }
-            api.logging().logToOutput("All checklists enabled");
+        };
+        // 设置居中对齐
+        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
+        centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        for (int i = 0; i < table.getColumnCount(); i++) {
+            table.getColumnModel().getColumn(i).setCellRenderer(i == 0 ? new CheckBoxRenderer() : centerRenderer);
+        }
+        table.setAutoCreateRowSorter(true);
+        table.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(new JCheckBox()));
+
+        // 在 Enable 列名添加复选框
+        JTableHeader header = table.getTableHeader();
+        JCheckBox headerCheckBox = new JCheckBox();
+        headerCheckBox.setHorizontalAlignment(SwingConstants.CENTER);
+        header.getColumnModel().getColumn(0).setHeaderRenderer(new HeaderCheckBoxRenderer(headerCheckBox));
+        headerCheckBox.addActionListener(e -> {
+            boolean selected = headerCheckBox.isSelected();
+            for (int i = 0; i < statsTableModel.getRowCount(); i++) {
+                statsTableModel.setValueAt(selected, i, 0);
+            }
+            api.logging().logToOutput(selected ? "All checklists selected" : "All checklists unselected");
         });
 
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
         return panel;
     }
 
@@ -95,21 +141,34 @@ public class ExtensionUI {
 
         // 日志表格
         JTable table = new JTable(logTableModel) {
+            private Color selectedBackground = new Color(100, 50, 14);
+            private Color selectedForeground = Color.WHITE;
+
             @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
                 Component c = super.prepareRenderer(renderer, row, column);
                 int modelRow = convertRowIndexToModel(row);
                 String result = (String) getModel().getValueAt(modelRow, 2);
-                if ("Issues".equals(result)) {
-                    c.setBackground(java.awt.Color.RED);
-                    c.setForeground(java.awt.Color.WHITE);
+                boolean isSelected = isRowSelected(row);
+                if (isSelected) {
+                    c.setBackground(selectedBackground);
+                    c.setForeground(selectedForeground);
+                } else if ("Issues".equals(result)) {
+                    c.setBackground(new Color(139, 69, 19));
+                    c.setForeground(Color.WHITE);
                 } else {
-                    c.setBackground(java.awt.Color.WHITE);
-                    c.setForeground(java.awt.Color.BLACK);
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(Color.BLACK);
                 }
                 return c;
             }
         };
+        // 设置居中对齐
+        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
+        centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        for (int i = 0; i < table.getColumnCount(); i++) {
+            table.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
+        }
         TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(logTableModel);
         table.setRowSorter(sorter);
         table.setAutoCreateRowSorter(true);
@@ -133,14 +192,19 @@ public class ExtensionUI {
 
         // 过滤器逻辑
         filterButton.addActionListener(e -> {
-            String keyword = keywordField.getText();
+            String keyword = keywordField.getText().trim();
             int columnIndex = columnSelector.getSelectedIndex();
-            if (keyword.trim().isEmpty()) {
+            if (keyword.isEmpty()) {
                 sorter.setRowFilter(null);
             } else {
-                sorter.setRowFilter(RowFilter.regexFilter(keyword, columnIndex));
+                try {
+                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(keyword), columnIndex));
+                    api.logging().logToOutput("Applied filter: column=" + columnSelector.getSelectedItem() + ", keyword=" + keyword);
+                } catch (Exception ex) {
+                    api.logging().logToOutput("Filter error: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(panel, "无效的过滤关键词: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
+                }
             }
-            api.logging().logToOutput("Applied filter: column=" + columnSelector.getSelectedItem() + ", keyword=" + keyword);
         });
 
         // 行选择监听器
@@ -178,27 +242,34 @@ public class ExtensionUI {
 
     private JPanel constructSettingsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        DefaultListModel<String> whitelistModel = new DefaultListModel<>();
-        JList<String> whitelistList = new JList<>(whitelistModel);
+        DefaultListModel<DomainEntry> whitelistModel = new DefaultListModel<>();
+        JList<DomainEntry> whitelistList = new JList<>(whitelistModel);
         JTextField domainField = new JTextField(20);
+        JCheckBox includeSubdomainsCheckBox = new JCheckBox("Include Subdomains");
         JButton addButton = new JButton("Add to Whitelist");
+        JButton removeButton = new JButton("Remove Selected");
 
         // Whitelist 面板
         JPanel inputPanel = new JPanel();
         inputPanel.add(new JLabel("Domain:"));
         inputPanel.add(domainField);
+        inputPanel.add(includeSubdomainsCheckBox);
         inputPanel.add(addButton);
+        inputPanel.add(removeButton);
         panel.add(inputPanel, BorderLayout.NORTH);
         panel.add(new JScrollPane(whitelistList), BorderLayout.CENTER);
 
         // 添加域名到白名单
         addButton.addActionListener(e -> {
             String domain = domainField.getText().trim();
-            if (!domain.isEmpty() && !whitelistModel.contains(domain)) {
-                whitelistModel.addElement(domain);
-                whitelistDomains.add(domain);
-                api.logging().logToOutput("Added domain to whitelist: " + domain);
+            boolean includeSubdomains = includeSubdomainsCheckBox.isSelected();
+            if (!domain.isEmpty() && !containsDomain(whitelistModel, domain)) {
+                DomainEntry entry = new DomainEntry(domain, includeSubdomains);
+                whitelistModel.addElement(entry);
+                whitelistDomains.add(entry);
+                api.logging().logToOutput("Added domain to whitelist: " + domain + ", Include Subdomains: " + includeSubdomains);
                 domainField.setText("");
+                includeSubdomainsCheckBox.setSelected(false);
             } else if (domain.isEmpty()) {
                 api.logging().logToOutput("Failed to add domain: empty input");
                 JOptionPane.showMessageDialog(panel, "请输入有效的域名", "错误", JOptionPane.ERROR_MESSAGE);
@@ -208,7 +279,29 @@ public class ExtensionUI {
             }
         });
 
+        // 删除选中的白名单域名
+        removeButton.addActionListener(e -> {
+            int selectedIndex = whitelistList.getSelectedIndex();
+            if (selectedIndex != -1) {
+                DomainEntry removedEntry = whitelistModel.remove(selectedIndex);
+                whitelistDomains.remove(removedEntry);
+                api.logging().logToOutput("Removed domain from whitelist: " + removedEntry.domain);
+            } else {
+                api.logging().logToOutput("Failed to remove domain: no domain selected");
+                JOptionPane.showMessageDialog(panel, "请先选择一个域名", "错误", JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
         return panel;
+    }
+
+    private boolean containsDomain(DefaultListModel<DomainEntry> model, String domain) {
+        for (int i = 0; i < model.size(); i++) {
+            if (model.get(i).domain.equals(domain)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void addLogEntry(String url, String checkType, String result, HttpRequestResponse requestResponse, String timestamp, List<AuditIssue> issues) {
@@ -235,9 +328,19 @@ public class ExtensionUI {
     }
 
     public boolean isDomainWhitelisted(String domain) {
-        boolean isWhitelisted = whitelistDomains.contains(domain);
-        api.logging().logToOutput("Checking whitelist for domain: " + domain + ", Result: " + isWhitelisted);
-        return isWhitelisted;
+        for (DomainEntry entry : whitelistDomains) {
+            if (entry.includeSubdomains) {
+                if (domain.equals(entry.domain) || domain.endsWith("." + entry.domain)) {
+                    api.logging().logToOutput("Domain whitelisted (include subdomains): " + domain + " matches " + entry.domain);
+                    return true;
+                }
+            } else if (domain.equals(entry.domain)) {
+                api.logging().logToOutput("Domain whitelisted: " + domain);
+                return true;
+            }
+        }
+        api.logging().logToOutput("Domain not whitelisted: " + domain);
+        return false;
     }
 
     public boolean isCheckEnabled(String checkType) {
@@ -322,7 +425,28 @@ public class ExtensionUI {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             setSelected((Boolean) value);
+            setHorizontalAlignment(SwingConstants.CENTER);
+            if (isSelected || (Boolean) value) {
+                setBackground(Color.BLUE);
+                setForeground(Color.WHITE);
+            } else {
+                setBackground(Color.WHITE);
+                setForeground(Color.BLACK);
+            }
             return this;
+        }
+    }
+
+    private static class HeaderCheckBoxRenderer implements TableCellRenderer {
+        private final JCheckBox checkBox;
+
+        public HeaderCheckBoxRenderer(JCheckBox checkBox) {
+            this.checkBox = checkBox;
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            return checkBox;
         }
     }
 }

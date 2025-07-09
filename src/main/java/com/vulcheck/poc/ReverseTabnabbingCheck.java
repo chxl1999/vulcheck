@@ -13,7 +13,9 @@ import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,6 +23,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
     private final MontoyaApi api;
     private final ExtensionUI ui;
     private final Pattern linkPattern = Pattern.compile("<a\\s+[^>]*>", Pattern.CASE_INSENSITIVE);
+    private final Set<String> scannedUrls = new HashSet<>();
     private int scannedCount = 0;
     private int scanningCount = 0;
 
@@ -46,19 +49,22 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         // 检查是否启用
         if (!ui.isCheckEnabled("Reverse Tabnabbing")) {
             api.logging().logToOutput("Skipping disabled check: Reverse Tabnabbing");
-            scannedCount++;
             scanningCount--;
-            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
             return AuditResult.auditResult(new ArrayList<>());
         }
 
-        // 检查是否在Whitelist中
+        // 检查是否在白名单中
         String domain = extractDomain(url);
         if (ui.isDomainWhitelisted(domain)) {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
-            scannedCount++;
             scanningCount--;
-            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
+            return AuditResult.auditResult(new ArrayList<>());
+        }
+
+        // 检查是否已扫描
+        if (scannedUrls.contains(url)) {
+            api.logging().logToOutput("Skipping already scanned URL: " + url);
+            scanningCount--;
             return AuditResult.auditResult(new ArrayList<>());
         }
 
@@ -127,7 +133,8 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
             result = "Pass";
         }
 
-        // 更新UI
+        // 更新UI并记录已扫描的URL
+        scannedUrls.add(url);
         scannedCount++;
         scanningCount--;
         ui.addLogEntry(url, "Reverse Tabnabbing", result, baseRequestResponse, timestamp, issues);
