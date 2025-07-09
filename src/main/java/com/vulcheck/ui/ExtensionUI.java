@@ -2,8 +2,15 @@ package com.vulcheck.ui;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
-import org.apache.poi.ss.usermodel.*;
+import burp.api.montoya.scanner.audit.issues.AuditIssue;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.usermodel.Font;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
@@ -22,13 +29,15 @@ public class ExtensionUI {
     private final DefaultTableModel logTableModel;
     private final DefaultTableModel statsTableModel;
     private final List<HttpRequestResponse> requestResponses;
+    private final List<List<AuditIssue>> requestResponsesIssues;
     private final List<String> whitelistDomains;
 
     public ExtensionUI(MontoyaApi api) {
         this.api = api;
-        this.logTableModel = new DefaultTableModel(new String[]{"URL", "Checktype", "Result"}, 0);
-        this.statsTableModel = new DefaultTableModel(new String[]{"Enable", "Checklist", "Status", "VulResult"}, 0);
+        this.logTableModel = new DefaultTableModel(new String[]{"URL", "Checktype", "Result", "Time"}, 0);
+        this.statsTableModel = new DefaultTableModel(new String[]{"Enable", "Checklist", "Status", "VulResult", "Time"}, 0);
         this.requestResponses = new ArrayList<>();
+        this.requestResponsesIssues = new ArrayList<>();
         this.whitelistDomains = new ArrayList<>();
         api.logging().logToOutput("ExtensionUI initialized");
     }
@@ -44,12 +53,30 @@ public class ExtensionUI {
 
     private JPanel constructStatisticsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        statsTableModel.addRow(new Object[]{true, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0"});
-        JTable table = new JTable(statsTableModel);
+        JPanel topPanel = new JPanel();
+        JButton selectAllButton = new JButton("Select All");
+        topPanel.add(selectAllButton);
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        statsTableModel.addRow(new Object[]{false, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0", ""});
+        JTable table = new JTable(statsTableModel) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return column == 0; // 仅允许编辑 Enable 列
+            }
+        };
         table.setAutoCreateRowSorter(true);
         table.getColumnModel().getColumn(0).setCellRenderer(new CheckBoxRenderer());
         table.getColumnModel().getColumn(0).setCellEditor(new DefaultCellEditor(new JCheckBox()));
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        selectAllButton.addActionListener(e -> {
+            for (int i = 0; i < statsTableModel.getRowCount(); i++) {
+                statsTableModel.setValueAt(true, i, 0);
+            }
+            api.logging().logToOutput("All checklists enabled");
+        });
+
         return panel;
     }
 
@@ -58,7 +85,7 @@ public class ExtensionUI {
 
         // 过滤器面板
         JPanel filterPanel = new JPanel();
-        JComboBox<String> columnSelector = new JComboBox<>(new String[]{"URL", "Checktype", "Result"});
+        JComboBox<String> columnSelector = new JComboBox<>(new String[]{"URL", "Checktype", "Result", "Time"});
         JTextField keywordField = new JTextField(20);
         JButton filterButton = new JButton("Apply Filter");
         filterPanel.add(new JLabel("Filter by:"));
@@ -67,7 +94,22 @@ public class ExtensionUI {
         filterPanel.add(filterButton);
 
         // 日志表格
-        JTable table = new JTable(logTableModel);
+        JTable table = new JTable(logTableModel) {
+            @Override
+            public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
+                Component c = super.prepareRenderer(renderer, row, column);
+                int modelRow = convertRowIndexToModel(row);
+                String result = (String) getModel().getValueAt(modelRow, 2);
+                if ("Issues".equals(result)) {
+                    c.setBackground(java.awt.Color.RED);
+                    c.setForeground(java.awt.Color.WHITE);
+                } else {
+                    c.setBackground(java.awt.Color.WHITE);
+                    c.setForeground(java.awt.Color.BLACK);
+                }
+                return c;
+            }
+        };
         TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>(logTableModel);
         table.setRowSorter(sorter);
         table.setAutoCreateRowSorter(true);
@@ -81,6 +123,7 @@ public class ExtensionUI {
         var requestEditor = api.userInterface().createHttpRequestEditor();
         var responseEditor = api.userInterface().createHttpResponseEditor();
         JTextArea analysisArea = new JTextArea("Analysis details here");
+        analysisArea.setEditable(false);
         detailTabs.addTab("Request", requestEditor.uiComponent());
         detailTabs.addTab("Response", responseEditor.uiComponent());
         detailTabs.addTab("Analysis", new JScrollPane(analysisArea));
@@ -110,7 +153,15 @@ public class ExtensionUI {
                         HttpRequestResponse requestResponse = requestResponses.get(modelRow);
                         requestEditor.setRequest(requestResponse.request());
                         responseEditor.setResponse(requestResponse.response());
-                        analysisArea.setText((String) logTableModel.getValueAt(modelRow, 2));
+                        List<AuditIssue> issues = requestResponsesIssues.get(modelRow);
+                        if (!issues.isEmpty()) {
+                            AuditIssue issue = issues.get(0);
+                            String analysisText = String.format("Name: %s\nDetail: %s\nRemediation: %s",
+                                issue.name(), issue.detail(), issue.remediation());
+                            analysisArea.setText(analysisText);
+                        } else {
+                            analysisArea.setText("No issues found");
+                        }
                         api.logging().logToOutput("Selected log row: " + modelRow + ", URL: " + logTableModel.getValueAt(modelRow, 0));
                     }
                 }
@@ -160,21 +211,23 @@ public class ExtensionUI {
         return panel;
     }
 
-    public void addLogEntry(String url, String checkType, String result, HttpRequestResponse requestResponse) {
+    public void addLogEntry(String url, String checkType, String result, HttpRequestResponse requestResponse, String timestamp, List<AuditIssue> issues) {
         SwingUtilities.invokeLater(() -> {
-            logTableModel.addRow(new Object[]{url, checkType, result});
+            logTableModel.addRow(new Object[]{url, checkType, result, timestamp});
             requestResponses.add(requestResponse);
-            api.logging().logToOutput("Added log entry: URL=" + url + ", Checktype=" + checkType + ", Result=" + result);
+            requestResponsesIssues.add(issues);
+            api.logging().logToOutput("Added log entry: URL=" + url + ", Checktype=" + checkType + ", Result=" + result + ", Time=" + timestamp);
         });
     }
 
-    public void updateStatistics(String checkType, int scanningCount, int scannedCount, int vulCount) {
+    public void updateStatistics(String checkType, int scanningCount, int scannedCount, int vulCount, String timestamp) {
         SwingUtilities.invokeLater(() -> {
             for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                 if (statsTableModel.getValueAt(i, 1).equals(checkType)) {
                     statsTableModel.setValueAt("0 scanning, " + scannedCount + " scanned", i, 2);
                     statsTableModel.setValueAt(String.valueOf(vulCount), i, 3);
-                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=0 scanning, " + scannedCount + " scanned, VulResult=" + vulCount);
+                    statsTableModel.setValueAt(timestamp, i, 4);
+                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=0 scanning, " + scannedCount + " scanned, VulResult=" + vulCount + ", Time=" + timestamp);
                     break;
                 }
             }
@@ -185,6 +238,17 @@ public class ExtensionUI {
         boolean isWhitelisted = whitelistDomains.contains(domain);
         api.logging().logToOutput("Checking whitelist for domain: " + domain + ", Result: " + isWhitelisted);
         return isWhitelisted;
+    }
+
+    public boolean isCheckEnabled(String checkType) {
+        for (int i = 0; i < statsTableModel.getRowCount(); i++) {
+            if (statsTableModel.getValueAt(i, 1).equals(checkType)) {
+                boolean enabled = (Boolean) statsTableModel.getValueAt(i, 0);
+                api.logging().logToOutput("Checking enable status for: " + checkType + ", Enabled: " + enabled);
+                return enabled;
+            }
+        }
+        return false;
     }
 
     private void exportToXLSX(JTable table) {
@@ -217,13 +281,13 @@ public class ExtensionUI {
         try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("VulCheck Log");
             CellStyle headerStyle = workbook.createCellStyle();
-            org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
+            Font headerFont = workbook.createFont();
             headerFont.setBold(true);
             headerStyle.setFont(headerFont);
             headerStyle.setAlignment(HorizontalAlignment.CENTER);
 
             Row headerRow = sheet.createRow(0);
-            String[] headers = {"URL", "Checktype", "Result"};
+            String[] headers = {"URL", "Checktype", "Result", "Time"};
             for (int i = 0; i < headers.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);

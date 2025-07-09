@@ -9,7 +9,10 @@ import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
 import com.vulcheck.ui.ExtensionUI;
+import java.net.URI;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,6 +41,16 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         scanningCount++;
         String url = baseRequestResponse.request().url();
         api.logging().logToOutput("Processing URL: " + url);
+        String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
+
+        // 检查是否启用
+        if (!ui.isCheckEnabled("Reverse Tabnabbing")) {
+            api.logging().logToOutput("Skipping disabled check: Reverse Tabnabbing");
+            scannedCount++;
+            scanningCount--;
+            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
+            return AuditResult.auditResult(new ArrayList<>());
+        }
 
         // 检查是否在Whitelist中
         String domain = extractDomain(url);
@@ -45,7 +58,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
             scannedCount++;
             scanningCount--;
-            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
+            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
             return AuditResult.auditResult(new ArrayList<>());
         }
 
@@ -56,7 +69,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
             api.logging().logToOutput("Skipping non-text response: " + contentType);
             scannedCount++;
             scanningCount--;
-            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
+            ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
             return AuditResult.auditResult(new ArrayList<>());
         }
 
@@ -91,12 +104,17 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
 
         String result;
         if (hasVulnerability) {
-            result = String.format("%s, %s, %s, Reverse Tabnabbing允许新窗口通过window.opener控制原页面, 在所有target=\"_blank\"链接中添加rel=\"noopener noreferrer\"", 
-                payload1, payload2, payload3);
+            result = "Issues";
             issues.add(AuditIssue.auditIssue(
                 "Reverse Tabnabbing Vulnerability",
-                "Found link with target=\"_blank\" without rel=\"noopener\" or \"noreferrer\".",
-                "Add rel=\"noopener noreferrer\" to all target=\"_blank\" links.",
+                String.format("%s, %s, %s, Reverse Tabnabbing允许新窗口通过window.opener控制原页面", 
+                    payload1, payload2, payload3),
+                "1. Add rel=\"noopener noreferrer\":\n" +
+                "Ensure all external links with target=\"_blank\" include rel=\"noopener noreferrer\" to prevent the new window from accessing window.opener.\n" +
+                "2. Avoid Using target=\"_blank\" (When Unnecessary):\n" +
+                "Remove target=\"_blank\" for links that do not require opening in a new window, allowing navigation within the same window.\n" +
+                "3. Secure window.open Usage:\n" +
+                "When dynamically opening new windows via JavaScript, use window.open(url, '_blank', 'noopener,noreferrer').",
                 url,
                 AuditIssueSeverity.LOW,
                 AuditIssueConfidence.CERTAIN,
@@ -112,8 +130,8 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
         // 更新UI
         scannedCount++;
         scanningCount--;
-        ui.addLogEntry(url, "Reverse Tabnabbing", result, baseRequestResponse);
-        ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size());
+        ui.addLogEntry(url, "Reverse Tabnabbing", result, baseRequestResponse, timestamp, issues);
+        ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
         api.logging().logToOutput("Scan completed for URL: " + url + ", Issues: " + issues.size());
 
         return AuditResult.auditResult(issues);
@@ -126,7 +144,7 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
 
     private String extractDomain(String url) {
         try {
-            String host = new java.net.URL(url).getHost();
+            String host = URI.create(url).toURL().getHost();
             return host.startsWith("www.") ? host.substring(4) : host;
         } catch (Exception e) {
             api.logging().logToOutput("Error extracting domain from URL: " + url);
