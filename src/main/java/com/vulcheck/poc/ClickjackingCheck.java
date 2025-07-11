@@ -2,12 +2,13 @@ package com.vulcheck.poc;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.scanner.ScanCheck;
 import burp.api.montoya.scanner.AuditResult;
-import burp.api.montoya.scanner.scancheck.PassiveScanCheck;
 import burp.api.montoya.scanner.ConsolidationAction;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
+import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.vulcheck.ui.ExtensionUI;
 import com.vulcheck.utils.ScanUtils;
 import java.text.SimpleDateFormat;
@@ -17,7 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class ClickjackingCheck implements PassiveScanCheck {
+public class ClickjackingCheck implements ScanCheck {
     private final MontoyaApi api;
     private final ExtensionUI ui;
     private final Set<String> scannedUrls = new HashSet<>();
@@ -31,12 +32,12 @@ public class ClickjackingCheck implements PassiveScanCheck {
     }
 
     @Override
-    public String checkName() {
-        return "Clickjacking Check";
+    public AuditResult activeAudit(HttpRequestResponse baseRequestResponse, AuditInsertionPoint auditInsertionPoint) {
+        return AuditResult.auditResult(new ArrayList<>()); // No active audit for passive checks
     }
 
     @Override
-    public AuditResult doCheck(HttpRequestResponse baseRequestResponse) {
+    public AuditResult passiveAudit(HttpRequestResponse baseRequestResponse) {
         List<AuditIssue> issues = new ArrayList<>();
         scanningCount++;
         String url = baseRequestResponse.request().url();
@@ -47,7 +48,7 @@ public class ClickjackingCheck implements PassiveScanCheck {
         if (!ui.isCheckEnabled("Clickjacking")) {
             api.logging().logToOutput("Skipping disabled check: Clickjacking");
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Check whitelist
@@ -55,14 +56,14 @@ public class ClickjackingCheck implements PassiveScanCheck {
         if (ui.isDomainWhitelisted(domain)) {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Skip if already scanned
         if (scannedUrls.contains(url)) {
             api.logging().logToOutput("Skipping already scanned URL: " + url);
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Check if response is HTML
@@ -73,7 +74,7 @@ public class ClickjackingCheck implements PassiveScanCheck {
             scannedCount++;
             scanningCount--;
             ui.updateStatistics("Clickjacking", scanningCount, scannedCount, issues.size(), timestamp);
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Check for X-Frame-Options header

@@ -2,12 +2,13 @@ package com.vulcheck.poc;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
+import burp.api.montoya.scanner.ScanCheck;
 import burp.api.montoya.scanner.AuditResult;
-import burp.api.montoya.scanner.scancheck.PassiveScanCheck;
 import burp.api.montoya.scanner.ConsolidationAction;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
+import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.vulcheck.ui.ExtensionUI;
 import com.vulcheck.utils.ScanUtils;
 import java.text.SimpleDateFormat;
@@ -19,7 +20,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class ReverseTabnabbingCheck implements PassiveScanCheck {
+public class ReverseTabnabbingCheck implements ScanCheck {
     private final MontoyaApi api;
     private final ExtensionUI ui;
     private final Pattern linkPattern = Pattern.compile("<a\\s+[^>]*>", Pattern.CASE_INSENSITIVE);
@@ -34,41 +35,41 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
     }
 
     @Override
-    public String checkName() {
-        return "Reverse Tabnabbing Check";
+    public AuditResult activeAudit(HttpRequestResponse baseRequestResponse, AuditInsertionPoint auditInsertionPoint) {
+        return AuditResult.auditResult(new ArrayList<>()); // No active audit for passive checks
     }
 
     @Override
-    public AuditResult doCheck(HttpRequestResponse baseRequestResponse) {
+    public AuditResult passiveAudit(HttpRequestResponse baseRequestResponse) {
         List<AuditIssue> issues = new ArrayList<>();
         scanningCount++;
         String url = baseRequestResponse.request().url();
-        api.logging().logToOutput("Processing URL: " + url);
+        api.logging().logToOutput("Processing URL for Reverse Tabnabbing: " + url);
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
 
-        // 检查是否启用
+        // Check if check is enabled
         if (!ui.isCheckEnabled("Reverse Tabnabbing")) {
             api.logging().logToOutput("Skipping disabled check: Reverse Tabnabbing");
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
-        // 检查是否在白名单中
+        // Check whitelist
         String domain = ScanUtils.extractDomain(url, api);
         if (ui.isDomainWhitelisted(domain)) {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
-        // 检查是否已扫描
+        // Check if already scanned
         if (scannedUrls.contains(url)) {
             api.logging().logToOutput("Skipping already scanned URL: " + url);
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
-        // 检查响应是否可能包含HTML
+        // Check if response is HTML
         String contentType = baseRequestResponse.response().statedMimeType().toString();
         api.logging().logToOutput("Content-Type: " + contentType);
         if (!contentType.toLowerCase().contains("html") && !contentType.toLowerCase().contains("text") && !contentType.isEmpty()) {
@@ -76,10 +77,10 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
             scannedCount++;
             scanningCount--;
             ui.updateStatistics("Reverse Tabnabbing", scanningCount, scannedCount, issues.size(), timestamp);
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
-        // 查找所有<a>标签
+        // Scan HTML for <a> tags
         String responseBody = baseRequestResponse.response().bodyToString();
         api.logging().logToOutput("Response length: " + responseBody.length());
         api.logging().logToOutput("Response snippet: " + (responseBody.length() > 100 ? responseBody.substring(0, 100) : responseBody));
@@ -133,7 +134,6 @@ public class ReverseTabnabbingCheck implements PassiveScanCheck {
             result = "Pass";
         }
 
-        // 更新UI并记录已扫描的URL
         scannedUrls.add(url);
         scannedCount++;
         scanningCount--;

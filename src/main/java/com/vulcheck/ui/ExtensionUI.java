@@ -312,6 +312,7 @@ public class ExtensionUI {
             logTableModel.addRow(new Object[]{url, checkType, result, timestamp});
             requestResponses.add(requestResponse);
             requestResponsesIssues.add(issues);
+            logTableModel.fireTableDataChanged(); // 通知表格数据更新
             api.logging().logToOutput("Added log entry: URL=" + url + ", Checktype=" + checkType + ", Result=" + result + ", Time=" + timestamp);
         });
     }
@@ -323,6 +324,7 @@ public class ExtensionUI {
                     statsTableModel.setValueAt("0 scanning, " + scannedCount + " scanned", i, 2);
                     statsTableModel.setValueAt(String.valueOf(vulCount), i, 3);
                     statsTableModel.setValueAt(timestamp, i, 4);
+                    statsTableModel.fireTableDataChanged(); // 通知表格数据更新
                     api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=0 scanning, " + scannedCount + " scanned, VulResult=" + vulCount + ", Time=" + timestamp);
                     break;
                 }

@@ -4,12 +4,13 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.http.message.HttpHeader;
+import burp.api.montoya.scanner.ScanCheck;
 import burp.api.montoya.scanner.AuditResult;
-import burp.api.montoya.scanner.scancheck.PassiveScanCheck;
 import burp.api.montoya.scanner.ConsolidationAction;
 import burp.api.montoya.scanner.audit.issues.AuditIssue;
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity;
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence;
+import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint;
 import com.vulcheck.ui.ExtensionUI;
 import com.vulcheck.utils.ScanUtils;
 import java.text.SimpleDateFormat;
@@ -21,7 +22,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class XSSICheck implements PassiveScanCheck {
+public class XSSICheck implements ScanCheck {
     private final MontoyaApi api;
     private final ExtensionUI ui;
     private final Set<String> scannedUrls = new HashSet<>();
@@ -48,12 +49,12 @@ public class XSSICheck implements PassiveScanCheck {
     }
 
     @Override
-    public String checkName() {
-        return "XSSI Check";
+    public AuditResult activeAudit(HttpRequestResponse baseRequestResponse, AuditInsertionPoint auditInsertionPoint) {
+        return AuditResult.auditResult(new ArrayList<>()); // No active audit for passive checks
     }
 
     @Override
-    public AuditResult doCheck(HttpRequestResponse baseRequestResponse) {
+    public AuditResult passiveAudit(HttpRequestResponse baseRequestResponse) {
         List<AuditIssue> issues = new ArrayList<>();
         scanningCount++;
         String url = baseRequestResponse.request().url();
@@ -64,7 +65,7 @@ public class XSSICheck implements PassiveScanCheck {
         if (!ui.isCheckEnabled("XSSI")) {
             api.logging().logToOutput("Skipping disabled check: XSSI");
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Check whitelist
@@ -72,14 +73,14 @@ public class XSSICheck implements PassiveScanCheck {
         if (ui.isDomainWhitelisted(domain)) {
             api.logging().logToOutput("Skipping whitelisted domain: " + domain);
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Skip if already scanned
         if (scannedUrls.contains(url)) {
             api.logging().logToOutput("Skipping already scanned URL: " + url);
             scanningCount--;
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Check if response is a potential JS file
@@ -95,7 +96,7 @@ public class XSSICheck implements PassiveScanCheck {
             scannedCount++;
             scanningCount--;
             ui.updateStatistics("XSSI", scanningCount, scannedCount, issues.size(), timestamp);
-            return AuditResult.auditResult(new ArrayList<>());
+            return AuditResult.auditResult(issues);
         }
 
         // Scan response body for sensitive data
@@ -165,19 +166,16 @@ public class XSSICheck implements PassiveScanCheck {
     }
 
     private boolean isDynamicJSFile(HttpRequestResponse baseRequestResponse) {
-        // Check for authentication headers
         if (!containsAuthenticationCharacteristics(baseRequestResponse)) {
             return false;
         }
 
-        // Send request without authentication headers
         HttpRequestResponse unauthenticatedResponse = sendUnauthenticatedRequest(baseRequestResponse);
         if (!compareResponses(baseRequestResponse, unauthenticatedResponse)) {
             api.logging().logToOutput("Dynamic JS detected due to authentication header differences: " + baseRequestResponse.request().url());
             return true;
         }
 
-        // Send two requests with delay to check for dynamic content
         HttpRequestResponse firstResponse = sendRequest(baseRequestResponse);
         try {
             Thread.sleep(1000); // Wait 1 second to detect time-based changes

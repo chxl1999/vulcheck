@@ -2,7 +2,6 @@ package com.vulcheck;
 
 import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
-import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import com.vulcheck.poc.ReverseTabnabbingCheck;
 import com.vulcheck.poc.XSSICheck;
 import com.vulcheck.poc.ClickjackingCheck;
@@ -19,18 +18,23 @@ public class Extension implements BurpExtension {
         ui.initialize();
         montoyaApi.logging().logToOutput("UI initialized successfully");
 
-        // Register passive scan checks
-        ReverseTabnabbingCheck reverseTabnabbingCheck = new ReverseTabnabbingCheck(montoyaApi, ui);
-        montoyaApi.scanner().registerPassiveScanCheck(reverseTabnabbingCheck, ScanCheckType.PER_REQUEST);
-        montoyaApi.logging().logToOutput("Passive scan check registered for Reverse Tabnabbing");
+        // Register scan checks
+        try {
+            ReverseTabnabbingCheck reverseTabnabbingCheck = new ReverseTabnabbingCheck(montoyaApi, ui);
+            montoyaApi.scanner().registerScanCheck(reverseTabnabbingCheck);
+            montoyaApi.logging().logToOutput("Scan check registered for Reverse Tabnabbing");
 
-        XSSICheck xssiCheck = new XSSICheck(montoyaApi, ui);
-        montoyaApi.scanner().registerPassiveScanCheck(xssiCheck, ScanCheckType.PER_REQUEST);
-        montoyaApi.logging().logToOutput("Passive scan check registered for XSSI");
+            XSSICheck xssiCheck = new XSSICheck(montoyaApi, ui);
+            montoyaApi.scanner().registerScanCheck(xssiCheck);
+            montoyaApi.logging().logToOutput("Scan check registered for XSSI");
 
-        ClickjackingCheck clickjackingCheck = new ClickjackingCheck(montoyaApi, ui);
-        montoyaApi.scanner().registerPassiveScanCheck(clickjackingCheck, ScanCheckType.PER_REQUEST);
-        montoyaApi.logging().logToOutput("Passive scan check registered for Clickjacking");
+            ClickjackingCheck clickjackingCheck = new ClickjackingCheck(montoyaApi, ui);
+            montoyaApi.scanner().registerScanCheck(clickjackingCheck);
+            montoyaApi.logging().logToOutput("Scan check registered for Clickjacking");
+        } catch (Exception e) {
+            montoyaApi.logging().logToError("Failed to register scan checks: " + e.getMessage());
+            e.printStackTrace();
+        }
 
         montoyaApi.logging().logToOutput("VulCheck plugin loaded successfully");
     }
