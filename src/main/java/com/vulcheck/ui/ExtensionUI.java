@@ -71,9 +71,10 @@ public class ExtensionUI {
     private JPanel constructStatisticsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
-        // 添加 Reverse Tabnabbing 和 XSSI 的行
+        // 添加 Reverse Tabnabbing、XSSI 和 Clickjacking 的行
         statsTableModel.addRow(new Object[]{false, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0", ""});
         statsTableModel.addRow(new Object[]{false, "XSSI", "0 scanning, 0 scanned", "0", ""});
+        statsTableModel.addRow(new Object[]{false, "Clickjacking", "0 scanning, 0 scanned", "0", ""});
 
         JTable table = new JTable(statsTableModel) {
             @Override

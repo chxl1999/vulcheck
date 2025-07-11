@@ -5,6 +5,7 @@ import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.scanner.scancheck.ScanCheckType;
 import com.vulcheck.poc.ReverseTabnabbingCheck;
 import com.vulcheck.poc.XSSICheck;
+import com.vulcheck.poc.ClickjackingCheck;
 import com.vulcheck.ui.ExtensionUI;
 
 public class Extension implements BurpExtension {
@@ -26,6 +27,10 @@ public class Extension implements BurpExtension {
         XSSICheck xssiCheck = new XSSICheck(montoyaApi, ui);
         montoyaApi.scanner().registerPassiveScanCheck(xssiCheck, ScanCheckType.PER_REQUEST);
         montoyaApi.logging().logToOutput("Passive scan check registered for XSSI");
+
+        ClickjackingCheck clickjackingCheck = new ClickjackingCheck(montoyaApi, ui);
+        montoyaApi.scanner().registerPassiveScanCheck(clickjackingCheck, ScanCheckType.PER_REQUEST);
+        montoyaApi.logging().logToOutput("Passive scan check registered for Clickjacking");
 
         montoyaApi.logging().logToOutput("VulCheck plugin loaded successfully");
     }
