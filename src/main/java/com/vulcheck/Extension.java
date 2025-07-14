@@ -5,6 +5,7 @@ import burp.api.montoya.MontoyaApi;
 import com.vulcheck.poc.ReverseTabnabbingCheck;
 import com.vulcheck.poc.XSSICheck;
 import com.vulcheck.poc.ClickjackingCheck;
+import com.vulcheck.poc.CrossSiteFlashingCheck;
 import com.vulcheck.ui.ExtensionUI;
 
 public class Extension implements BurpExtension {
@@ -31,6 +32,11 @@ public class Extension implements BurpExtension {
             ClickjackingCheck clickjackingCheck = new ClickjackingCheck(montoyaApi, ui);
             montoyaApi.scanner().registerScanCheck(clickjackingCheck);
             montoyaApi.logging().logToOutput("Scan check registered for Clickjacking");
+
+            CrossSiteFlashingCheck crossSiteFlashingCheck = new CrossSiteFlashingCheck(montoyaApi, ui);
+            montoyaApi.scanner().registerScanCheck(crossSiteFlashingCheck);
+            montoyaApi.logging().logToOutput("Scan check registered for Cross Site Flashing");
+
         } catch (Exception e) {
             montoyaApi.logging().logToError("Failed to register scan checks: " + e.getMessage());
             e.printStackTrace();

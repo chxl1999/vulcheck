@@ -71,10 +71,11 @@ public class ExtensionUI {
     private JPanel constructStatisticsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
-        // 添加 Reverse Tabnabbing、XSSI 和 Clickjacking 的行
+        // 添加 Reverse Tabnabbing、XSSI、Clickjacking 和 Cross Site Flashing 的行
         statsTableModel.addRow(new Object[]{false, "Reverse Tabnabbing", "0 scanning, 0 scanned", "0", ""});
         statsTableModel.addRow(new Object[]{false, "XSSI", "0 scanning, 0 scanned", "0", ""});
         statsTableModel.addRow(new Object[]{false, "Clickjacking", "0 scanning, 0 scanned", "0", ""});
+        statsTableModel.addRow(new Object[]{false, "Cross Site Flashing", "0 scanning, 0 scanned", "0", ""});
 
         JTable table = new JTable(statsTableModel) {
             @Override
@@ -321,11 +322,11 @@ public class ExtensionUI {
         SwingUtilities.invokeLater(() -> {
             for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                 if (statsTableModel.getValueAt(i, 1).equals(checkType)) {
-                    statsTableModel.setValueAt("0 scanning, " + scannedCount + " scanned", i, 2);
+                    statsTableModel.setValueAt(scanningCount + " scanning, " + scannedCount + " scanned", i, 2);
                     statsTableModel.setValueAt(String.valueOf(vulCount), i, 3);
                     statsTableModel.setValueAt(timestamp, i, 4);
                     statsTableModel.fireTableDataChanged(); // 通知表格数据更新
-                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=0 scanning, " + scannedCount + " scanned, VulResult=" + vulCount + ", Time=" + timestamp);
+                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=" + scanningCount + " scanning, " + scannedCount + " scanned, VulResult=" + vulCount + ", Time=" + timestamp);
                     break;
                 }
             }
