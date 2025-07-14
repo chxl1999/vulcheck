@@ -14,6 +14,8 @@ import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -22,6 +24,11 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.regex.Pattern;
+import com.vulcheck.poc.ReverseTabnabbingCheck;
+import com.vulcheck.poc.XSSICheck;
+import com.vulcheck.poc.ClickjackingCheck;
+import com.vulcheck.poc.CrossSiteFlashingCheck;
+import com.vulcheck.utils.ScanUtils;
 
 public class ExtensionUI {
     private final MontoyaApi api;
@@ -32,6 +39,10 @@ public class ExtensionUI {
     private final List<DomainEntry> whitelistDomains;
     private final Color selectedBackground = new Color(100, 50, 14);
     private final Color selectedForeground = Color.WHITE;
+    private ReverseTabnabbingCheck reverseTabnabbingCheck;
+    private XSSICheck xssiCheck;
+    private ClickjackingCheck clickjackingCheck;
+    private CrossSiteFlashingCheck crossSiteFlashingCheck;
 
     // 白名单域名对象
     private static class DomainEntry {
@@ -51,12 +62,20 @@ public class ExtensionUI {
 
     public ExtensionUI(MontoyaApi api) {
         this.api = api;
-        this.logTableModel = new DefaultTableModel(new String[]{"URL", "Checktype", "Result", "Time"}, 0);
+        this.logTableModel = new DefaultTableModel(new String[]{"Host", "Checktype", "Result", "Time"}, 0);
         this.statsTableModel = new DefaultTableModel(new String[]{"Enable", "Checklist", "Status", "VulResult", "Time"}, 0);
         this.requestResponses = new ArrayList<>();
         this.requestResponsesIssues = new ArrayList<>();
         this.whitelistDomains = new ArrayList<>();
         api.logging().logToOutput("ExtensionUI initialized");
+    }
+
+    public void setScanChecks(ReverseTabnabbingCheck reverseTabnabbingCheck, XSSICheck xssiCheck, 
+                             ClickjackingCheck clickjackingCheck, CrossSiteFlashingCheck crossSiteFlashingCheck) {
+        this.reverseTabnabbingCheck = reverseTabnabbingCheck;
+        this.xssiCheck = xssiCheck;
+        this.clickjackingCheck = clickjackingCheck;
+        this.crossSiteFlashingCheck = crossSiteFlashingCheck;
     }
 
     public void initialize() {
@@ -104,9 +123,11 @@ public class ExtensionUI {
             }
         };
 
-        // 设置居中对齐
+        // 设置行高和垂直居中
+        table.setRowHeight((int) (table.getRowHeight() * 1.5)); // 行高增加到1.5倍
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        centerRenderer.setVerticalAlignment(SwingConstants.CENTER); // 垂直居中
         for (int i = 0; i < table.getColumnCount(); i++) {
             table.getColumnModel().getColumn(i).setCellRenderer(i == 0 ? new CheckBoxRenderer() : centerRenderer);
         }
@@ -123,11 +144,86 @@ public class ExtensionUI {
             for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                 statsTableModel.setValueAt(selected, i, 0);
             }
-            statsTableModel.fireTableDataChanged(); // 通知表格数据更新
+            statsTableModel.fireTableDataChanged();
             api.logging().logToOutput(selected ? "All checklists selected" : "All checklists unselected");
+            table.repaint(); // 强制刷新表格
+        });
+        header.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getX() < header.getColumnModel().getColumn(0).getWidth()) {
+                    headerCheckBox.setSelected(!headerCheckBox.isSelected());
+                    headerCheckBox.getActionListeners()[0].actionPerformed(null);
+                }
+            }
+        });
+
+        // 添加 Host 输入框和 Http history retest 按钮
+        JPanel buttonPanel = new JPanel();
+        JLabel hostLabel = new JLabel("Host:");
+        JTextField hostField = new JTextField(20);
+        JButton retestButton = new JButton("Http history retest");
+        buttonPanel.add(hostLabel);
+        buttonPanel.add(hostField);
+        buttonPanel.add(retestButton);
+
+        retestButton.addActionListener(e -> {
+            api.logging().logToOutput("Starting Http history retest...");
+            String targetHost = hostField.getText().trim();
+            List<HttpRequestResponse> httpHistory = api.siteMap().requestResponses();
+            if (httpHistory.isEmpty()) {
+                api.logging().logToOutput("No requests found in site map");
+                JOptionPane.showMessageDialog(panel, "No requests found in site map", "Retest", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            api.logging().logToOutput("Found " + httpHistory.size() + " requests in site map");
+            int processedCount = 0;
+            for (HttpRequestResponse requestResponse : httpHistory) {
+                if (!requestResponse.hasResponse()) {
+                    api.logging().logToOutput("Skipping request with no response: " + requestResponse.request().url());
+                    continue;
+                }
+                String domain = ScanUtils.extractDomain(requestResponse.request().url(), api);
+                if (!targetHost.isEmpty() && !domain.equals(targetHost) && !domain.endsWith("." + targetHost)) {
+                    api.logging().logToOutput("Skipping non-matching host: " + domain + " (target: " + targetHost + ")");
+                    continue;
+                }
+                for (int i = 0; i < statsTableModel.getRowCount(); i++) {
+                    if ((Boolean) statsTableModel.getValueAt(i, 0)) { // 检查是否启用
+                        String checkType = (String) statsTableModel.getValueAt(i, 1);
+                        switch (checkType) {
+                            case "Reverse Tabnabbing":
+                                if (reverseTabnabbingCheck != null) {
+                                    reverseTabnabbingCheck.passiveAudit(requestResponse);
+                                }
+                                break;
+                            case "XSSI":
+                                if (xssiCheck != null) {
+                                    xssiCheck.passiveAudit(requestResponse);
+                                }
+                                break;
+                            case "Clickjacking":
+                                if (clickjackingCheck != null) {
+                                    clickjackingCheck.passiveAudit(requestResponse);
+                                }
+                                break;
+                            case "Cross Site Flashing":
+                                if (crossSiteFlashingCheck != null) {
+                                    crossSiteFlashingCheck.passiveAudit(requestResponse);
+                                }
+                                break;
+                        }
+                        api.logging().logToOutput("Retested " + checkType + " for URL: " + requestResponse.request().url());
+                    }
+                }
+                processedCount++;
+            }
+            api.logging().logToOutput("Http history retest completed, processed " + processedCount + " requests");
+            JOptionPane.showMessageDialog(panel, "Http history retest completed, processed " + processedCount + " requests", "Retest", JOptionPane.INFORMATION_MESSAGE);
         });
 
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -136,7 +232,7 @@ public class ExtensionUI {
 
         // 过滤器面板
         JPanel filterPanel = new JPanel();
-        JComboBox<String> columnSelector = new JComboBox<>(new String[]{"URL", "Checktype", "Result", "Time"});
+        JComboBox<String> columnSelector = new JComboBox<>(new String[]{"Host", "Checktype", "Result", "Time"});
         JTextField keywordField = new JTextField(20);
         JButton filterButton = new JButton("Apply Filter");
         filterPanel.add(new JLabel("Filter by:"));
@@ -166,9 +262,11 @@ public class ExtensionUI {
             }
         };
 
-        // 设置居中对齐
+        // 设置行高和垂直居中
+        table.setRowHeight((int) (table.getRowHeight() * 1.5)); // 行高增加到1.5倍
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        centerRenderer.setVerticalAlignment(SwingConstants.CENTER); // 垂直居中
         for (int i = 0; i < table.getColumnCount(); i++) {
             table.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
         }
@@ -206,9 +304,10 @@ public class ExtensionUI {
                     api.logging().logToOutput("Applied filter: column=" + columnSelector.getSelectedItem() + ", keyword=" + keyword);
                 }
             } catch (Exception ex) {
-                api.logging().logToOutput("Filter error: " + ex.getMessage());
+                api.logging().logToError("Filter error: " + ex.getMessage());
                 JOptionPane.showMessageDialog(panel, "无效的过滤关键词: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
             }
+            table.repaint(); // 强制刷新表格
         });
 
         // 行选择监听器
@@ -230,7 +329,7 @@ public class ExtensionUI {
                         } else {
                             analysisArea.setText("No issues found");
                         }
-                        api.logging().logToOutput("Selected log row: " + modelRow + ", URL: " + logTableModel.getValueAt(modelRow, 0));
+                        api.logging().logToOutput("Selected log row: " + modelRow + ", Host: " + logTableModel.getValueAt(modelRow, 0));
                     }
                 }
             }
@@ -309,12 +408,13 @@ public class ExtensionUI {
     }
 
     public void addLogEntry(String url, String checkType, String result, HttpRequestResponse requestResponse, String timestamp, List<AuditIssue> issues) {
+        String host = ScanUtils.extractDomain(url, api);
         SwingUtilities.invokeLater(() -> {
-            logTableModel.addRow(new Object[]{url, checkType, result, timestamp});
+            logTableModel.addRow(new Object[]{host, checkType, result, timestamp});
             requestResponses.add(requestResponse);
             requestResponsesIssues.add(issues);
             logTableModel.fireTableDataChanged(); // 通知表格数据更新
-            api.logging().logToOutput("Added log entry: URL=" + url + ", Checktype=" + checkType + ", Result=" + result + ", Time=" + timestamp);
+            api.logging().logToOutput("Added log entry: Host=" + host + ", Checktype=" + checkType + ", Result=" + result + ", Time=" + timestamp);
         });
     }
 
@@ -396,7 +496,7 @@ public class ExtensionUI {
             headerStyle.setAlignment(HorizontalAlignment.CENTER);
 
             Row headerRow = sheet.createRow(0);
-            String[] headers = {"URL", "Checktype", "Result", "Time"};
+            String[] headers = {"Host", "Checktype", "Result", "Time"};
             for (int i = 0; i < headers.length; i++) {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
@@ -432,6 +532,7 @@ public class ExtensionUI {
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             setSelected((Boolean) value);
             setHorizontalAlignment(SwingConstants.CENTER);
+            setVerticalAlignment(SwingConstants.CENTER); // 垂直居中
             if (isSelected || (Boolean) value) {
                 setBackground(Color.BLUE);
                 setForeground(Color.WHITE);
@@ -448,6 +549,7 @@ public class ExtensionUI {
 
         public HeaderCheckBoxRenderer(JCheckBox checkBox) {
             this.checkBox = checkBox;
+            this.checkBox.setEnabled(true); // 确保复选框可交互
         }
 
         @Override

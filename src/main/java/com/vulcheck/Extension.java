@@ -37,6 +37,9 @@ public class Extension implements BurpExtension {
             montoyaApi.scanner().registerScanCheck(crossSiteFlashingCheck);
             montoyaApi.logging().logToOutput("Scan check registered for Cross Site Flashing");
 
+            // Pass scan checks to UI for retest functionality
+            ui.setScanChecks(reverseTabnabbingCheck, xssiCheck, clickjackingCheck, crossSiteFlashingCheck);
+
         } catch (Exception e) {
             montoyaApi.logging().logToError("Failed to register scan checks: " + e.getMessage());
             e.printStackTrace();
