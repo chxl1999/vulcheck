@@ -23,7 +23,6 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.regex.Pattern;
 import com.vulcheck.poc.ReverseTabnabbingCheck;
 import com.vulcheck.poc.XSSICheck;
 import com.vulcheck.poc.ClickjackingCheck;
@@ -34,8 +33,10 @@ public class ExtensionUI {
     private final MontoyaApi api;
     private final DefaultTableModel logTableModel;
     private final DefaultTableModel statsTableModel;
+    private final DefaultTableModel retestTableModel;
     private final List<HttpRequestResponse> requestResponses;
     private final List<List<AuditIssue>> requestResponsesIssues;
+    private final List<HttpRequestResponse> retestRequests;
     private final List<DomainEntry> whitelistDomains;
     private final Color selectedBackground = new Color(100, 50, 14);
     private final Color selectedForeground = Color.WHITE;
@@ -64,8 +65,10 @@ public class ExtensionUI {
         this.api = api;
         this.logTableModel = new DefaultTableModel(new String[]{"Host", "Checktype", "Result", "Time"}, 0);
         this.statsTableModel = new DefaultTableModel(new String[]{"Enable", "Checklist", "Status", "VulResult", "Time"}, 0);
+        this.retestTableModel = new DefaultTableModel(new String[]{"Method", "URL"}, 0);
         this.requestResponses = new ArrayList<>();
         this.requestResponsesIssues = new ArrayList<>();
+        this.retestRequests = new ArrayList<>();
         this.whitelistDomains = new ArrayList<>();
         api.logging().logToOutput("ExtensionUI initialized");
     }
@@ -167,9 +170,31 @@ public class ExtensionUI {
         buttonPanel.add(hostField);
         buttonPanel.add(retestButton);
 
+        // Retest 目标表格
+        JTable retestTable = new JTable(retestTableModel) {
+            @Override
+            public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
+                Component c = super.prepareRenderer(renderer, row, column);
+                return c;
+            }
+        };
+        retestTable.setRowHeight((int) (retestTable.getRowHeight() * 1.5)); // 行高增加到1.5倍
+        DefaultTableCellRenderer retestRenderer = new DefaultTableCellRenderer();
+        retestRenderer.setHorizontalAlignment(SwingConstants.CENTER);
+        retestRenderer.setVerticalAlignment(SwingConstants.CENTER);
+        for (int i = 0; i < retestTable.getColumnCount(); i++) {
+            retestTable.getColumnModel().getColumn(i).setCellRenderer(retestRenderer);
+        }
+        retestTable.setAutoCreateRowSorter(true);
+
         retestButton.addActionListener(e -> {
             api.logging().logToOutput("Starting Http history retest...");
             String targetHost = hostField.getText().trim();
+            // 清空上一次重测记录
+            retestRequests.clear();
+            while (retestTableModel.getRowCount() > 0) {
+                retestTableModel.removeRow(0);
+            }
             List<HttpRequestResponse> httpHistory = api.siteMap().requestResponses();
             if (httpHistory.isEmpty()) {
                 api.logging().logToOutput("No requests found in site map");
@@ -188,6 +213,9 @@ public class ExtensionUI {
                     api.logging().logToOutput("Skipping non-matching host: " + domain + " (target: " + targetHost + ")");
                     continue;
                 }
+                // 添加到重测目标表格
+                retestRequests.add(requestResponse);
+                retestTableModel.addRow(new Object[]{requestResponse.request().method(), requestResponse.request().url()});
                 for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                     if ((Boolean) statsTableModel.getValueAt(i, 0)) { // 检查是否启用
                         String checkType = (String) statsTableModel.getValueAt(i, 1);
@@ -219,26 +247,21 @@ public class ExtensionUI {
                 processedCount++;
             }
             api.logging().logToOutput("Http history retest completed, processed " + processedCount + " requests");
+            retestTableModel.fireTableDataChanged();
+            retestTable.repaint();
             JOptionPane.showMessageDialog(panel, "Http history retest completed, processed " + processedCount + " requests", "Retest", JOptionPane.INFORMATION_MESSAGE);
         });
 
+        JPanel southPanel = new JPanel(new BorderLayout());
+        southPanel.add(buttonPanel, BorderLayout.NORTH);
+        southPanel.add(new JScrollPane(retestTable), BorderLayout.CENTER);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
-        panel.add(buttonPanel, BorderLayout.SOUTH);
+        panel.add(southPanel, BorderLayout.SOUTH);
         return panel;
     }
 
     private JPanel constructLogPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-
-        // 过滤器面板
-        JPanel filterPanel = new JPanel();
-        JComboBox<String> columnSelector = new JComboBox<>(new String[]{"Host", "Checktype", "Result", "Time"});
-        JTextField keywordField = new JTextField(20);
-        JButton filterButton = new JButton("Apply Filter");
-        filterPanel.add(new JLabel("Filter by:"));
-        filterPanel.add(columnSelector);
-        filterPanel.add(keywordField);
-        filterPanel.add(filterButton);
 
         // 日志表格
         JTable table = new JTable(logTableModel) {
@@ -291,25 +314,6 @@ public class ExtensionUI {
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(table), detailTabs);
         splitPane.setDividerLocation(300);
 
-        // 过滤器逻辑
-        filterButton.addActionListener(e -> {
-            String keyword = keywordField.getText().trim();
-            int columnIndex = columnSelector.getSelectedIndex();
-            try {
-                if (keyword.isEmpty()) {
-                    sorter.setRowFilter(null);
-                    api.logging().logToOutput("Filter cleared");
-                } else {
-                    sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(keyword), columnIndex));
-                    api.logging().logToOutput("Applied filter: column=" + columnSelector.getSelectedItem() + ", keyword=" + keyword);
-                }
-            } catch (Exception ex) {
-                api.logging().logToError("Filter error: " + ex.getMessage());
-                JOptionPane.showMessageDialog(panel, "无效的过滤关键词: " + ex.getMessage(), "错误", JOptionPane.ERROR_MESSAGE);
-            }
-            table.repaint(); // 强制刷新表格
-        });
-
         // 行选择监听器
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -336,7 +340,6 @@ public class ExtensionUI {
         });
 
         JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.add(filterPanel, BorderLayout.NORTH);
         topPanel.add(exportButton, BorderLayout.SOUTH);
         panel.add(topPanel, BorderLayout.NORTH);
         panel.add(splitPane, BorderLayout.CENTER);
@@ -420,16 +423,18 @@ public class ExtensionUI {
 
     public void updateStatistics(String checkType, int scanningCount, int scannedCount, int vulCount, String timestamp) {
         SwingUtilities.invokeLater(() -> {
+            boolean found = false;
             for (int i = 0; i < statsTableModel.getRowCount(); i++) {
                 if (statsTableModel.getValueAt(i, 1).equals(checkType)) {
                     statsTableModel.setValueAt(scanningCount + " scanning, " + scannedCount + " scanned", i, 2);
                     statsTableModel.setValueAt(String.valueOf(vulCount), i, 3);
                     statsTableModel.setValueAt(timestamp, i, 4);
-                    statsTableModel.fireTableDataChanged(); // 通知表格数据更新
-                    api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=" + scanningCount + " scanning, " + scannedCount + " scanned, VulResult=" + vulCount + ", Time=" + timestamp);
+                    found = true;
                     break;
                 }
             }
+            statsTableModel.fireTableDataChanged();
+            api.logging().logToOutput("Updated statistics: Checktype=" + checkType + ", Status=" + scanningCount + " scanning, " + scannedCount + " scanned, VulResult=" + vulCount + ", Time=" + timestamp + ", Found=" + found);
         });
     }
 
